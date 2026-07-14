@@ -1,0 +1,87 @@
+name: release
+
+# Tag a commit (e.g. `git tag v1.0.0 && git push --tags`) to build native installers
+# for Windows, macOS, and Linux with jpackage and publish them as a GitHub Release.
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            type: deb
+            artifact: dist/*.deb
+          - os: macos-latest
+            type: dmg
+            artifact: dist/*.dmg
+          - os: windows-latest
+            type: app-image
+            artifact: dist/Argus-*.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Install Linux packaging tools
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y fakeroot binutils
+
+      - name: Derive version from tag
+        id: ver
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the runnable jar
+        run: mvn -B -pl argus-desktop -am package -DskipTests
+
+      - name: Stage the jar
+        shell: bash
+        run: |
+          mkdir -p staging
+          cp argus-desktop/target/argus-desktop-*.jar staging/argus.jar
+
+      - name: Package with jpackage
+        shell: bash
+        run: |
+          jpackage --name Argus \
+            --input staging \
+            --main-jar argus.jar \
+            --main-class io.argus.desktop.DesktopApp \
+            --app-version "${{ steps.ver.outputs.version }}" \
+            --type ${{ matrix.type }} \
+            --dest dist
+
+      - name: Zip the Windows app-image
+        if: matrix.type == 'app-image'
+        shell: pwsh
+        run: Compress-Archive -Path dist/Argus/* -DestinationPath "dist/Argus-${{ steps.ver.outputs.version }}-windows.zip"
+
+      - name: Add the cross-platform portable jar (Linux job only)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: cp staging/argus.jar "dist/argus-${{ steps.ver.outputs.version }}-portable.jar"
+
+      - name: Publish native installer to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}
+
+      - name: Publish the portable jar to the release
+        if: matrix.os == 'ubuntu-latest'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/argus-${{ steps.ver.outputs.version }}-portable.jar

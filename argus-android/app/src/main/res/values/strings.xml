@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Argus</string>
+    <string name="server_hint">Server URL</string>
+    <string name="server_default">http://10.0.2.2:8080</string>
+    <string name="query_hint">Search\u2026</string>
+    <string name="search">Search</string>
+    <string name="ready">Ready</string>
+    <string name="searching">Searching\u2026</string>
+    <string name="hits_format">%1$d hit(s) \u00b7 showing %2$d</string>
+    <string name="error_format">Error: %1$s</string>
+</resources>

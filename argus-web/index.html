@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Argus — a search engine and browser engine, from scratch in Java</title>
+  <meta name="description" content="Argus is a from-scratch full-text search engine and a from-scratch HTML/CSS/JavaScript rendering engine, written in Java with zero third-party runtime dependencies." />
+  <meta property="og:title" content="Argus — search engine + browser engine, from scratch in Java" />
+  <meta property="og:description" content="An inverted-index search engine with BM25 ranking, plus an HTML/CSS/JS rendering engine — all written from scratch in Java." />
+  <meta property="og:type" content="website" />
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="#top">
+      <span class="brand-mark" aria-hidden="true"></span>
+      Argus
+    </a>
+    <nav class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#renders">Renders</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#scope">Scope</a>
+      <a class="nav-cta" data-repo href="#">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <p class="eyebrow">Written from scratch · Java 17 · Zero runtime dependencies</p>
+      <h1>A search engine <em>and</em> a browser engine,<br />built from first principles.</h1>
+      <p class="lede">
+        Argus is two hard systems in one codebase: a full-text <strong>search engine</strong> with an
+        inverted index, BM25 ranking, a durable segment store, and concurrent near-real-time indexing;
+        and a <strong>rendering engine</strong> that turns HTML, CSS, and JavaScript into pixels &mdash;
+        tokenizer, DOM, cascade, layout, paint, and a tree-walking JS interpreter, all hand-written.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" data-release href="#">Download the desktop app</a>
+        <a class="btn btn-ghost" data-repo href="#">Read the source</a>
+      </div>
+      <dl class="stats">
+        <div><dt>200+</dt><dd>passing tests</dd></div>
+        <div><dt>0</dt><dd>runtime dependencies</dd></div>
+        <div><dt>6</dt><dd>engine stages, hand-written</dd></div>
+      </dl>
+    </section>
+
+    <section id="features" class="features">
+      <h2>Two engines, one repository</h2>
+      <div class="grid">
+        <article class="card">
+          <h3>Inverted index &amp; BM25</h3>
+          <p>Analysis pipeline (tokenizer, lowercase, stopwords, Porter stemmer), postings with
+             delta + varint compression, and Okapi BM25 / TF-IDF scoring over document-at-a-time
+             scorers.</p>
+        </article>
+        <article class="card">
+          <h3>Durable &amp; concurrent</h3>
+          <p>Segment files, a CRC-framed write-ahead log with torn-tail recovery, an atomic manifest,
+             and near-real-time refresh backed by immutable snapshots for lock-free search.</p>
+        </article>
+        <article class="card">
+          <h3>Query language</h3>
+          <p>A parser for field terms, boolean <code>AND/OR/NOT</code>, <code>+/-</code> clauses,
+             <code>"phrases"</code>, <code>prefix*</code>, and grouping &mdash; compiled to a scorer tree.</p>
+        </article>
+        <article class="card">
+          <h3>HTML &amp; CSS engine</h3>
+          <p>A tolerant HTML tokenizer and tree builder, a CSS parser with selectors and specificity,
+             and a cascade that resolves computed styles with inheritance and inline overrides.</p>
+        </article>
+        <article class="card">
+          <h3>Layout &amp; paint</h3>
+          <p>A CSS box-model layout engine (block flow, the width/height/margin algorithm, and inline
+             line-breaking with word wrap) painted to a display list and rasterized with Java2D.</p>
+        </article>
+        <article class="card">
+          <h3>JavaScript interpreter</h3>
+          <p>A lexer, recursive-descent parser, and tree-walking interpreter with closures,
+             <code>this</code>, arrays, objects, and DOM bindings &mdash; scripts mutate the page before paint.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="renders" class="renders">
+      <h2>Real output from the rendering engine</h2>
+      <p class="section-lede">Every image below was produced by Argus &mdash; no browser component is embedded.</p>
+      <div class="shots">
+        <figure>
+          <img src="assets/screenshot-cern.png" alt="Argus rendering the world's first website over HTTP" loading="lazy" />
+          <figcaption>A live website (<code>info.cern.ch</code>) fetched over HTTP and rendered: headings, wrapped text, and inline links.</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/screenshot-scripted.png" alt="A page whose content is built entirely by JavaScript" loading="lazy" />
+          <figcaption>A page whose list and totals are created <em>entirely by JavaScript</em> (<code>createElement</code> in a loop), then styled and painted.</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/screenshot-sample.png" alt="A styled page with cards, borders, and the box model" loading="lazy" />
+          <figcaption>Backgrounds, borders, the box model, and the cascade &mdash; laid out and rasterized by Java2D.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="architecture" class="architecture">
+      <h2>The pipeline</h2>
+      <p class="section-lede">A document flows through six hand-written stages to become pixels.</p>
+      <ol class="pipeline">
+        <li><span>1</span> HTML tokenizer &rarr; DOM tree</li>
+        <li><span>2</span> JavaScript engine mutates the DOM</li>
+        <li><span>3</span> CSS parser &rarr; cascade &amp; computed styles</li>
+        <li><span>4</span> Box-model layout (block + inline)</li>
+        <li><span>5</span> Display list</li>
+        <li><span>6</span> Java2D paint &rarr; pixels</li>
+      </ol>
+    </section>
+
+    <section id="scope" class="scope">
+      <h2>Honest scope</h2>
+      <div class="scope-grid">
+        <div class="scope-col do">
+          <h3>What it does</h3>
+          <ul>
+            <li>Renders static HTML and a practical subset of CSS</li>
+            <li>Runs a real JavaScript subset that reads and mutates the DOM</li>
+            <li>Fetches pages and stylesheets over HTTP/HTTPS</li>
+            <li>Indexes and searches millions of terms with BM25 ranking</li>
+          </ul>
+        </div>
+        <div class="scope-col dont">
+          <h3>What it doesn't</h3>
+          <ul>
+            <li>It is not Chrome: no flexbox/grid, images, or web fonts</li>
+            <li>It won't run framework-heavy single-page apps</li>
+            <li>No full ECMAScript (no async/await, generators, prototypes)</li>
+            <li>The goal is depth of understanding, not feature parity</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="download">
+      <h2>Get Argus</h2>
+      <p>Native installers for Windows, macOS, and Linux are published on the releases page, built by
+         GitHub Actions with <code>jpackage</code>. Or clone the repo and run <code>mvn verify</code>.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" data-release href="#">Releases &amp; downloads</a>
+        <a class="btn btn-ghost" data-repo href="#">Source on GitHub</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Argus &mdash; a search engine and browser engine, from scratch in Java.</p>
+    <p class="muted">Built with the JDK only. <span id="year"></span></p>
+  </footer>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>

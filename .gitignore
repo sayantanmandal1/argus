@@ -1,0 +1,28 @@
+# Build output
+target/
+dist/
+staging/
+
+# Local index data created by the app / tests
+argus-data/
+*.log
+
+# IDE / editor
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Android
+argus-android/.gradle/
+argus-android/build/
+argus-android/app/build/
+argus-android/local.properties
+argus-android/.idea/
+*.apk
