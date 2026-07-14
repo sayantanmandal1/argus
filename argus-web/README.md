@@ -24,7 +24,9 @@ Open `assets/app.js` and set your repository:
 const REPO_URL = "https://github.com/your-username/argus";
 ```
 
-The download and "source" buttons are wired to `${REPO_URL}` and `${REPO_URL}/releases/latest`.
+The download buttons detect the visitor's OS and link straight to
+`${REPO_URL}/releases/latest/download/<asset>` for a one-click install; "source" links use
+`${REPO_URL}`. The asset names must match those published by `.github/workflows/release.yml`.
 
 ## Deploy to Vercel
 

@@ -1,39 +1,54 @@
 package io.argus.desktop;
 
+import io.argus.desktop.ui.ChromeTabbedPaneUI;
+import io.argus.desktop.ui.FlatButton;
+import io.argus.desktop.ui.FlatScrollBarUI;
+import io.argus.desktop.ui.Icons;
+import io.argus.desktop.ui.Omnibox;
+import io.argus.desktop.ui.TabHeader;
+import io.argus.desktop.ui.Theme;
 import io.argus.index.PersistentIndex;
 import io.argus.server.ArgusServer;
 import io.argus.server.SearchService;
 import io.argus.store.FSDirectory;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.event.ActionListener;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
-import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
-import javax.swing.JMenu;
-import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.MatteBorder;
 
 /**
  * The Argus desktop application: a Swing UI with a browser-style navigation bar (back / forward /
@@ -45,21 +60,18 @@ import javax.swing.border.EmptyBorder;
  */
 public final class DesktopApp {
 
-    private static final Color BG = new Color(0x0e, 0x0f, 0x12);
-    private static final Color PANEL = new Color(0x16, 0x18, 0x1d);
-    private static final Color LINE = new Color(0x26, 0x2a, 0x31);
-    private static final Color BONE = new Color(0xe8, 0xe6, 0xe1);
-    private static final Color DIM = new Color(0x9a, 0xa0, 0xaa);
-    private static final Color EMBER = new Color(0xff, 0x6a, 0x2b);
-
     private final PersistentIndex index;
     private final SearchController controller;
     private ArgusServer server;
 
     private JFrame frame;
+    private JTabbedPane tabs;
+    private JPanel plusPage;
+    private boolean addingTab;
+
     private JTextField searchField;
-    private JButton backButton;
-    private JButton forwardButton;
+    private FlatButton backButton;
+    private FlatButton forwardButton;
     private JPanel resultsPanel;
     private JLabel statusLabel;
 
@@ -88,57 +100,86 @@ public final class DesktopApp {
     }
 
     public void show() {
+        Theme.install();
         frame = new JFrame("Argus");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(920, 680);
+        frame.setMinimumSize(new Dimension(760, 540));
+        frame.setSize(1120, 760);
         frame.setLocationRelativeTo(null);
-        frame.setJMenuBar(buildMenuBar());
+        frame.setIconImages(List.of(
+                Theme.appIcon(16), Theme.appIcon(32), Theme.appIcon(64), Theme.appIcon(128)));
 
-        JPanel searchTab = new JPanel(new BorderLayout());
-        searchTab.setBackground(BG);
-        searchTab.add(buildNavBar(), BorderLayout.NORTH);
+        tabs = new JTabbedPane();
+        ChromeTabbedPaneUI.install(tabs);
+        tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
 
-        resultsPanel = new JPanel();
-        resultsPanel.setLayout(new BoxLayout(resultsPanel, BoxLayout.Y_AXIS));
-        resultsPanel.setBackground(BG);
-        resultsPanel.setBorder(new EmptyBorder(12, 12, 12, 12));
-        JScrollPane scroll = new JScrollPane(resultsPanel);
-        scroll.setBorder(null);
-        scroll.getVerticalScrollBar().setUnitIncrement(16);
-        scroll.getViewport().setBackground(BG);
-        searchTab.add(scroll, BorderLayout.CENTER);
+        addingTab = true;
+        tabs.addTab(null, buildSearchTab());
+        TabHeader searchHeader = new TabHeader("Search", Icons.of(Icons.Kind.SEARCH, 14, Theme.EMBER), null);
+        tabs.setTabComponentAt(0, searchHeader);
+        attachTabSelect(searchHeader);
 
-        JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Search", searchTab);
-        tabs.addTab("Web", new BrowserView());
+        plusPage = new JPanel();
+        plusPage.setBackground(Theme.WINDOW);
+        tabs.addTab(null, plusPage);
+        tabs.setTabComponentAt(1, newTabButton());
+        addingTab = false;
+
+        tabs.addChangeListener(e -> onTabChanged());
 
         JPanel root = new JPanel(new BorderLayout());
-        root.setBackground(BG);
+        root.setBackground(Theme.WINDOW);
         root.add(tabs, BorderLayout.CENTER);
-
-        statusLabel = new JLabel(" Ready");
-        statusLabel.setForeground(DIM);
-        statusLabel.setBackground(PANEL);
-        statusLabel.setOpaque(true);
-        statusLabel.setBorder(new EmptyBorder(6, 10, 6, 10));
-        root.add(statusLabel, BorderLayout.SOUTH);
-
         frame.setContentPane(root);
+
+        installAppShortcuts();
+        updateTabSelection();
+
         frame.setVisible(true);
         runSearch(""); // browse all on start
         searchField.requestFocusInWindow();
     }
 
-    private JPanel buildNavBar() {
-        JPanel bar = new JPanel(new BorderLayout(8, 0));
-        bar.setBackground(PANEL);
-        bar.setBorder(new EmptyBorder(10, 10, 10, 10));
+    private JComponent buildSearchTab() {
+        JPanel tab = new JPanel(new BorderLayout());
+        tab.setBackground(Theme.WINDOW);
+        tab.add(buildSearchBar(), BorderLayout.NORTH);
 
-        JPanel nav = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        resultsPanel = new JPanel();
+        resultsPanel.setLayout(new BoxLayout(resultsPanel, BoxLayout.Y_AXIS));
+        resultsPanel.setBackground(Theme.WINDOW);
+        resultsPanel.setBorder(new EmptyBorder(16, 18, 16, 18));
+
+        JScrollPane scroll = new JScrollPane(resultsPanel);
+        scroll.setBorder(null);
+        scroll.getVerticalScrollBar().setUnitIncrement(24);
+        scroll.getViewport().setBackground(Theme.WINDOW);
+        FlatScrollBarUI.apply(scroll);
+        tab.add(scroll, BorderLayout.CENTER);
+
+        statusLabel = new JLabel("Ready");
+        statusLabel.setForeground(Theme.DIM);
+        statusLabel.setFont(Theme.UI);
+        JPanel statusBar = new JPanel(new BorderLayout());
+        statusBar.setBackground(Theme.PANEL);
+        statusBar.setBorder(new CompoundBorder(
+                new MatteBorder(1, 0, 0, 0, Theme.LINE_SOFT), new EmptyBorder(6, 16, 6, 16)));
+        statusBar.add(statusLabel, BorderLayout.CENTER);
+        tab.add(statusBar, BorderLayout.SOUTH);
+        return tab;
+    }
+
+    private JComponent buildSearchBar() {
+        JPanel bar = new JPanel(new BorderLayout(10, 0));
+        bar.setBackground(Theme.CHROME);
+        bar.setBorder(new CompoundBorder(
+                new MatteBorder(0, 0, 1, 0, Theme.LINE_SOFT), new EmptyBorder(10, 12, 10, 12)));
+
+        JPanel nav = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         nav.setOpaque(false);
-        backButton = navButton("\u25C0", e -> navigate(controller.goBack()));
-        forwardButton = navButton("\u25B6", e -> navigate(controller.goForward()));
-        JButton home = navButton("\u2302", e -> {
+        backButton = FlatButton.icon(Icons.Kind.BACK, "Previous search", e -> navigate(controller.goBack()));
+        forwardButton = FlatButton.icon(Icons.Kind.FORWARD, "Next search", e -> navigate(controller.goForward()));
+        FlatButton home = FlatButton.icon(Icons.Kind.HOME, "Browse all", e -> {
             searchField.setText("");
             runSearch("");
         });
@@ -147,81 +188,176 @@ public final class DesktopApp {
         nav.add(home);
         bar.add(nav, BorderLayout.WEST);
 
-        searchField = new JTextField();
-        searchField.setBackground(BG);
-        searchField.setForeground(BONE);
-        searchField.setCaretColor(EMBER);
-        searchField.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(LINE), new EmptyBorder(8, 10, 8, 10)));
+        Omnibox box = new Omnibox("Search the index");
+        searchField = box.field();
         searchField.addActionListener(e -> runSearch(searchField.getText()));
-        bar.add(searchField, BorderLayout.CENTER);
+        bar.add(box, BorderLayout.CENTER);
 
-        JButton searchButton = new JButton("Search");
-        searchButton.setBackground(EMBER);
-        searchButton.setForeground(Color.BLACK);
-        searchButton.setFocusPainted(false);
-        searchButton.addActionListener(e -> runSearch(searchField.getText()));
-        bar.add(searchButton, BorderLayout.EAST);
+        JPanel east = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        east.setOpaque(false);
+        east.add(FlatButton.primary("Search", e -> runSearch(searchField.getText())));
+        FlatButton menu = FlatButton.icon(Icons.Kind.MENU, "Menu", null);
+        menu.addActionListener(e -> showAppMenu(menu));
+        east.add(menu);
+        bar.add(east, BorderLayout.EAST);
 
         updateNavButtons();
         return bar;
     }
 
-    private JButton navButton(String text, ActionListener action) {
-        JButton b = new JButton(text);
-        b.setBackground(BG);
-        b.setForeground(BONE);
-        b.setFocusPainted(false);
-        b.setBorder(BorderFactory.createLineBorder(LINE));
-        b.addActionListener(action);
-        return b;
+    private JComponent newTabButton() {
+        JLabel plus = new JLabel(Icons.of(Icons.Kind.PLUS, 16, Theme.DIM));
+        plus.setBorder(new EmptyBorder(2, 10, 2, 10));
+        plus.setToolTipText("New tab (Ctrl+T)");
+        plus.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        plus.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                newWebTab();
+            }
+        });
+        return plus;
     }
 
-    private JMenuBar buildMenuBar() {
-        JMenuBar menu = new JMenuBar();
+    private void attachTabSelect(Component header) {
+        header.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                int idx = tabs.indexOfTabComponent(header);
+                if (idx >= 0) {
+                    tabs.setSelectedIndex(idx);
+                }
+            }
+        });
+    }
 
-        JMenu file = new JMenu("File");
-        JMenuItem add = new JMenuItem("Index Document\u2026");
-        add.addActionListener(e -> showIndexDialog());
-        JMenuItem commit = new JMenuItem("Commit");
-        commit.addActionListener(e -> {
+    private void onTabChanged() {
+        if (addingTab) {
+            return;
+        }
+        int sel = tabs.getSelectedIndex();
+        if (sel >= 0 && tabs.getComponentAt(sel) == plusPage) {
+            newWebTab();
+            return;
+        }
+        updateTabSelection();
+    }
+
+    private void updateTabSelection() {
+        int sel = tabs.getSelectedIndex();
+        for (int i = 0; i < tabs.getTabCount(); i++) {
+            Component comp = tabs.getTabComponentAt(i);
+            if (comp instanceof TabHeader header) {
+                header.setSelected(i == sel);
+            }
+        }
+    }
+
+    private void newWebTab() {
+        openWebTab(null);
+    }
+
+    private void openWebTab(String url) {
+        BrowserView view = new BrowserView(this::newWebTab);
+        int insertAt = tabs.getTabCount() - 1; // before the trailing "+" tab
+        addingTab = true;
+        tabs.insertTab(null, null, view, null, insertAt);
+        TabHeader header = new TabHeader("New Tab", Icons.of(Icons.Kind.GLOBE, 14, Theme.DIM),
+                () -> closeTab(view));
+        tabs.setTabComponentAt(insertAt, header);
+        attachTabSelect(header);
+        view.setTitleListener(header::setTitle);
+        tabs.setSelectedIndex(insertAt);
+        addingTab = false;
+        updateTabSelection();
+        if (url != null) {
+            view.load(url, true);
+        }
+        SwingUtilities.invokeLater(view::focusOmnibox);
+    }
+
+    private void closeTab(Component view) {
+        int i = tabs.indexOfComponent(view);
+        if (i < 0) {
+            return;
+        }
+        addingTab = true;
+        tabs.remove(i);
+        int plusIndex = tabs.getTabCount() - 1;
+        int target = Math.min(i, plusIndex - 1);
+        tabs.setSelectedIndex(Math.max(0, target));
+        addingTab = false;
+        updateTabSelection();
+    }
+
+    private void showAppMenu(Component anchor) {
+        JPopupMenu menu = new JPopupMenu();
+        menu.setBackground(Theme.PANEL);
+        menu.setBorder(BorderFactory.createLineBorder(Theme.LINE));
+        menu.add(menuItem("New browser tab", e -> newWebTab()));
+        menu.addSeparator();
+        menu.add(menuItem("Index document\u2026", e -> showIndexDialog()));
+        menu.add(menuItem("Commit", e -> {
             controller.commit();
             setStatus("Committed.");
-        });
-        JMenuItem exit = new JMenuItem("Exit");
-        exit.addActionListener(e -> frame.dispose());
-        file.add(add);
-        file.add(commit);
-        file.addSeparator();
-        file.add(exit);
-
-        JMenu serverMenu = new JMenu("Server");
-        JMenuItem toggle = new JMenuItem("Start local HTTP server");
-        toggle.addActionListener(e -> toggleServer(toggle));
-        serverMenu.add(toggle);
-
-        JMenu help = new JMenu("Help");
-        JMenuItem stats = new JMenuItem("Index Stats");
-        stats.addActionListener(e -> showStats());
-        help.add(stats);
-
-        menu.add(file);
-        menu.add(serverMenu);
-        menu.add(help);
-        return menu;
+        }));
+        menu.add(menuItem("Index stats", e -> showStats()));
+        menu.addSeparator();
+        String serverLabel = server == null
+                ? "Start local HTTP server"
+                : "Stop server (port " + server.port() + ")";
+        menu.add(menuItem(serverLabel, e -> toggleServer()));
+        menu.show(anchor, 0, anchor.getHeight() + 4);
     }
 
-    private void toggleServer(JMenuItem item) {
+    private JMenuItem menuItem(String text, ActionListener action) {
+        JMenuItem item = new JMenuItem(text);
+        item.setBackground(Theme.PANEL);
+        item.setForeground(Theme.TEXT);
+        item.setOpaque(true);
+        item.setFont(Theme.UI);
+        item.setBorder(new EmptyBorder(7, 14, 7, 22));
+        item.addActionListener(action);
+        return item;
+    }
+
+    private void installAppShortcuts() {
+        JComponent root = (JComponent) frame.getContentPane();
+        bindApp(root, KeyStroke.getKeyStroke(KeyEvent.VK_T, InputEvent.CTRL_DOWN_MASK), "newTab", this::newWebTab);
+        bindApp(root, KeyStroke.getKeyStroke(KeyEvent.VK_W, InputEvent.CTRL_DOWN_MASK), "closeTab",
+                this::closeCurrentTab);
+    }
+
+    private void bindApp(JComponent root, KeyStroke key, String name, Runnable action) {
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(key, name);
+        root.getActionMap().put(name, new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                action.run();
+            }
+        });
+    }
+
+    private void closeCurrentTab() {
+        int i = tabs.getSelectedIndex();
+        if (i < 0) {
+            return;
+        }
+        Component c = tabs.getComponentAt(i);
+        if (c instanceof BrowserView) {
+            closeTab(c);
+        }
+    }
+
+    private void toggleServer() {
         try {
             if (server == null) {
                 server = new ArgusServer(8080, new SearchService(index, "body"));
                 server.start();
-                item.setText("Stop local HTTP server");
                 setStatus("Serving on http://localhost:" + server.port() + "   (UI at /)");
             } else {
                 server.stop();
                 server = null;
-                item.setText("Start local HTTP server");
                 setStatus("Server stopped.");
             }
         } catch (IOException ex) {
@@ -303,26 +439,24 @@ public final class DesktopApp {
     }
 
     @SuppressWarnings("unchecked")
-    private JPanel card(Map<String, Object> hit) {
-        JPanel card = new JPanel(new BorderLayout(0, 4));
-        card.setBackground(PANEL);
-        card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(LINE), new EmptyBorder(10, 12, 10, 12)));
-        card.setAlignmentX(Component.LEFT_ALIGNMENT);
+    private JComponent card(Map<String, Object> hit) {
+        RoundedCard card = new RoundedCard();
 
         Map<String, Object> fields = (Map<String, Object>) hit.getOrDefault("fields", Map.of());
         String titleText = String.valueOf(fields.getOrDefault("title", fields.getOrDefault("id", "(document)")));
         JLabel title = new JLabel(titleText);
-        title.setForeground(EMBER);
-        title.setFont(title.getFont().deriveFont(Font.BOLD, 15f));
+        title.setForeground(Theme.EMBER);
+        title.setFont(Theme.uiFont(java.awt.Font.BOLD, 15f));
 
         double score = ((Number) hit.getOrDefault("score", 0.0)).doubleValue();
         JLabel meta = new JLabel(String.format("#%s   score %.4f", String.valueOf(hit.get("docId")), score));
-        meta.setForeground(DIM);
+        meta.setForeground(Theme.DIM);
+        meta.setFont(Theme.MONO);
 
         String bodyText = String.valueOf(fields.getOrDefault("body", ""));
-        JLabel body = new JLabel("<html><body style='width:640px'>" + escape(bodyText) + "</body></html>");
-        body.setForeground(BONE);
+        JLabel body = new JLabel("<html><body style='width:720px'>" + escape(bodyText) + "</body></html>");
+        body.setForeground(Theme.TEXT);
+        body.setFont(Theme.UI);
 
         JPanel top = new JPanel(new BorderLayout());
         top.setOpaque(false);
@@ -333,6 +467,45 @@ public final class DesktopApp {
 
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
         return card;
+    }
+
+    /** A rounded result card that brightens and outlines in the accent colour on hover. */
+    private static final class RoundedCard extends JPanel {
+
+        private boolean hover;
+
+        RoundedCard() {
+            super(new BorderLayout(0, 6));
+            setOpaque(false);
+            setBorder(new EmptyBorder(14, 16, 14, 16));
+            setAlignmentX(Component.LEFT_ALIGNMENT);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseEntered(MouseEvent e) {
+                    hover = true;
+                    repaint();
+                }
+
+                @Override
+                public void mouseExited(MouseEvent e) {
+                    hover = false;
+                    repaint();
+                }
+            });
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            Theme.aa(g2);
+            g2.setColor(hover ? Theme.RAISED : Theme.PANEL);
+            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
+            g2.setColor(hover ? Theme.EMBER : Theme.LINE);
+            g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
+            g2.dispose();
+            super.paintComponent(g);
+        }
     }
 
     private static String escape(String s) {

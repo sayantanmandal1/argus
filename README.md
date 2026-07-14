@@ -122,8 +122,11 @@ Query syntax: `term`, `field:term`, `AND`/`OR`/`NOT`, `+required` / `-excluded`,
 
 ## Packaging & releases
 
-Push a version tag to build native installers with `jpackage` (`.deb` / `.dmg` / Windows app-image)
-plus a portable jar and the Android APK, and publish them all as a GitHub Release:
+Push a version tag to build clickable native installers with `jpackage` (a Windows `.exe`, a macOS
+`.dmg`, and a Linux `.deb` &mdash; each bundling its own Java runtime) plus a portable jar and the
+Android APK, and publish them all as a GitHub Release under stable names
+(`Argus-Setup-Windows-x64.exe`, `Argus-macOS.dmg`, `Argus-Linux-x86_64.deb`) so links like
+`releases/latest/download/Argus-Setup-Windows-x64.exe` always fetch the newest build:
 
 ```bash
 git tag v1.0.0 && git push --tags

@@ -27,28 +27,49 @@
 
   <main id="top">
     <section class="hero">
-      <p class="eyebrow">Written from scratch · Java 17 · Zero runtime dependencies</p>
-      <h1>A search engine <em>and</em> a browser engine,<br />built from first principles.</h1>
-      <p class="lede">
-        Argus is two hard systems in one codebase: a full-text <strong>search engine</strong> with an
-        inverted index, BM25 ranking, a durable segment store, and concurrent near-real-time indexing;
-        and a <strong>rendering engine</strong> that turns HTML, CSS, and JavaScript into pixels &mdash;
-        tokenizer, DOM, cascade, layout, paint, and a tree-walking JS interpreter, all hand-written.
-      </p>
-      <div class="hero-actions">
-        <a class="btn btn-primary" data-release href="#">Download the desktop app</a>
-        <a class="btn btn-ghost" data-repo href="#">Read the source</a>
+      <div class="hero-copy">
+        <p class="eyebrow">Written from scratch · Java 17 · Zero runtime dependencies</p>
+        <h1>A search engine <em>and</em> a browser engine,<br />built from first principles.</h1>
+        <p class="lede">
+          Argus is two hard systems in one codebase: a full-text <strong>search engine</strong> with an
+          inverted index, BM25 ranking, a durable segment store, and concurrent near-real-time indexing;
+          and a <strong>rendering engine</strong> that turns HTML, CSS, and JavaScript into pixels &mdash;
+          tokenizer, DOM, cascade, layout, paint, and a tree-walking JS interpreter, all hand-written.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" data-release="auto" href="#">Download the desktop app</a>
+          <a class="btn btn-ghost" data-repo href="#">Read the source</a>
+        </div>
+        <dl class="stats">
+          <div><dt data-count="200" data-suffix="+">200+</dt><dd>passing tests</dd></div>
+          <div><dt data-count="0">0</dt><dd>runtime dependencies</dd></div>
+          <div><dt data-count="6">6</dt><dd>engine stages, hand-written</dd></div>
+        </dl>
       </div>
-      <dl class="stats">
-        <div><dt>200+</dt><dd>passing tests</dd></div>
-        <div><dt>0</dt><dd>runtime dependencies</dd></div>
-        <div><dt>6</dt><dd>engine stages, hand-written</dd></div>
-      </dl>
+      <div class="hero-visual">
+        <div class="browser-mock" aria-hidden="true">
+          <div class="browser-mock-inner">
+            <div class="bm-bar">
+              <span class="bm-dot"></span><span class="bm-dot"></span><span class="bm-dot"></span>
+              <div class="bm-url">argus://render/info.cern.ch</div>
+            </div>
+            <div class="bm-view">
+              <div class="bm-h1"></div>
+              <div class="bm-line"></div>
+              <div class="bm-line short"></div>
+              <div class="bm-block"></div>
+              <div class="bm-line"></div>
+              <div class="bm-line short"></div>
+              <div class="bm-chip"></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section id="features" class="features">
       <h2>Two engines, one repository</h2>
-      <div class="grid">
+      <div class="grid reveal-group">
         <article class="card">
           <h3>Inverted index &amp; BM25</h3>
           <p>Analysis pipeline (tokenizer, lowercase, stopwords, Porter stemmer), postings with
@@ -86,7 +107,7 @@
     <section id="renders" class="renders">
       <h2>Real output from the rendering engine</h2>
       <p class="section-lede">Every image below was produced by Argus &mdash; no browser component is embedded.</p>
-      <div class="shots">
+      <div class="shots reveal-group">
         <figure>
           <img src="assets/screenshot-cern.png" alt="Argus rendering the world's first website over HTTP" loading="lazy" />
           <figcaption>A live website (<code>info.cern.ch</code>) fetched over HTTP and rendered: headings, wrapped text, and inline links.</figcaption>
@@ -105,7 +126,7 @@
     <section id="architecture" class="architecture">
       <h2>The pipeline</h2>
       <p class="section-lede">A document flows through six hand-written stages to become pixels.</p>
-      <ol class="pipeline">
+      <ol class="pipeline reveal-group">
         <li><span>1</span> HTML tokenizer &rarr; DOM tree</li>
         <li><span>2</span> JavaScript engine mutates the DOM</li>
         <li><span>3</span> CSS parser &rarr; cascade &amp; computed styles</li>
@@ -117,7 +138,7 @@
 
     <section id="scope" class="scope">
       <h2>Honest scope</h2>
-      <div class="scope-grid">
+      <div class="scope-grid reveal-group">
         <div class="scope-col do">
           <h3>What it does</h3>
           <ul>
@@ -141,12 +162,18 @@
 
     <section class="download">
       <h2>Get Argus</h2>
-      <p>Native installers for Windows, macOS, and Linux are published on the releases page, built by
-         GitHub Actions with <code>jpackage</code>. Or clone the repo and run <code>mvn verify</code>.</p>
+      <p>One-click native installers &mdash; each bundles its own Java runtime, so there is nothing
+         else to install. Built by GitHub Actions with <code>jpackage</code>. The button in the hero
+         picks the right one for your system; grab any platform directly here.</p>
       <div class="hero-actions">
-        <a class="btn btn-primary" data-release href="#">Releases &amp; downloads</a>
-        <a class="btn btn-ghost" data-repo href="#">Source on GitHub</a>
+        <a class="btn btn-primary" data-download="windows" href="#">Windows installer (.exe)</a>
+        <a class="btn btn-ghost" data-download="macos" href="#">macOS (.dmg)</a>
+        <a class="btn btn-ghost" data-download="linux" href="#">Linux (.deb)</a>
       </div>
+      <p class="muted download-alt">
+        Prefer to run it yourself? Grab the <a data-download="portable" href="#">portable jar (any OS)</a>,
+        browse <a data-release href="#">all releases</a>, or clone the repo and run <code>mvn verify</code>.
+      </p>
     </section>
   </main>
 

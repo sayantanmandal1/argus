@@ -1,7 +1,8 @@
 name: release
 
-# Tag a commit (e.g. `git tag v1.0.0 && git push --tags`) to build native installers
-# for Windows, macOS, and Linux with jpackage and publish them as a GitHub Release.
+# Tag a commit (e.g. `git tag v1.0.0 && git push --tags`) to build clickable native
+# installers with jpackage — a Windows .exe, a macOS .dmg, and a Linux .deb, each
+# bundling its own Java runtime — and publish them as a GitHub Release.
 
 on:
   push:
@@ -16,15 +17,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Each platform builds a real, self-contained native installer (it
+          # bundles its own Java runtime, so users need nothing pre-installed).
+          # `asset` is a stable, version-less name so the website can link to
+          # `/releases/latest/download/<asset>` for a true one-click download.
           - os: ubuntu-latest
             type: deb
-            artifact: dist/*.deb
+            asset: Argus-Linux-x86_64.deb
           - os: macos-latest
             type: dmg
-            artifact: dist/*.dmg
+            asset: Argus-macOS.dmg
           - os: windows-latest
-            type: app-image
-            artifact: dist/Argus-*.zip
+            type: exe
+            asset: Argus-Setup-Windows-x64.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -40,10 +45,33 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y fakeroot binutils
 
-      - name: Derive version from tag
+      - name: Install Inno Setup (needed by jpackage for the Windows .exe)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          # jpackage locates the installer compiler (ISCC.exe) on PATH.
+          Add-Content -Path $env:GITHUB_PATH -Value "C:\Program Files (x86)\Inno Setup 6"
+
+      - name: Derive versions from the tag
         id: ver
         shell: bash
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          RAW="${GITHUB_REF_NAME#v}"          # v1.2.3 -> 1.2.3 ; v0.1.0-rc.1 -> 0.1.0-rc.1
+          CORE="${RAW%%-*}"                    # drop any -prerelease suffix
+          CORE="${CORE%%+*}"                   # drop any +build metadata
+          IFS='.' read -r MA MI PA _ <<< "$CORE"
+          [[ "$MA" =~ ^[0-9]+$ ]] || MA=1
+          [[ "$MI" =~ ^[0-9]+$ ]] || MI=0
+          [[ "$PA" =~ ^[0-9]+$ ]] || PA=0
+          # jpackage requires 1-3 integers and the first one must be >= 1
+          # (macOS CFBundleVersion rejects a leading 0), so normalize it.
+          if [ "$MA" -lt 1 ]; then
+            echo "::notice::app-version major '$MA' is invalid for jpackage; using 1 instead. Tag with v1.0.0+ to avoid this."
+            MA=1
+          fi
+          echo "version=${RAW}" >> "$GITHUB_OUTPUT"
+          echo "app_version=${MA}.${MI}.${PA}" >> "$GITHUB_OUTPUT"
 
       - name: Build the runnable jar
         run: mvn -B -pl argus-desktop -am package -DskipTests
@@ -57,31 +85,43 @@ jobs:
       - name: Package with jpackage
         shell: bash
         run: |
-          jpackage --name Argus \
+          set -euo pipefail
+          extra=()
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            # Production-grade installer: Start Menu entry, desktop shortcut,
+            # and a "choose install folder" page.
+            extra+=(--win-menu --win-menu-group "Argus" --win-shortcut --win-dir-chooser)
+          fi
+          mkdir -p dist
+          jpackage \
+            --name Argus \
             --input staging \
             --main-jar argus.jar \
             --main-class io.argus.desktop.DesktopApp \
-            --app-version "${{ steps.ver.outputs.version }}" \
-            --type ${{ matrix.type }} \
-            --dest dist
+            --app-version "${{ steps.ver.outputs.app_version }}" \
+            --type "${{ matrix.type }}" \
+            --vendor "Argus" \
+            --description "Argus — a search engine and browser engine, from scratch in Java" \
+            --copyright "Argus" \
+            --dest dist \
+            ${extra[@]+"${extra[@]}"}
 
-      - name: Zip the Windows app-image
-        if: matrix.type == 'app-image'
-        shell: pwsh
-        run: Compress-Archive -Path dist/Argus/* -DestinationPath "dist/Argus-${{ steps.ver.outputs.version }}-windows.zip"
+      - name: Normalize the installer to a stable asset name
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          src="$(ls dist/*.${{ matrix.type }} | head -n1)"
+          cp "$src" "out/${{ matrix.asset }}"
+          ls -l out
 
       - name: Add the cross-platform portable jar (Linux job only)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
-        run: cp staging/argus.jar "dist/argus-${{ steps.ver.outputs.version }}-portable.jar"
+        run: cp staging/argus.jar out/Argus-portable.jar
 
-      - name: Publish native installer to the release
+      - name: Publish to the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.artifact }}
-
-      - name: Publish the portable jar to the release
-        if: matrix.os == 'ubuntu-latest'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/argus-${{ steps.ver.outputs.version }}-portable.jar
+          files: out/*
+          fail_on_unmatched_files: true

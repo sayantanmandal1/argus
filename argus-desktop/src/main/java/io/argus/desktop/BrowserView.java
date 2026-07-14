@@ -7,8 +7,15 @@ import io.argus.browser.layout.LayoutBox;
 import io.argus.browser.paint.AwtTextMeasurer;
 import io.argus.browser.paint.DisplayList;
 import io.argus.browser.paint.Painter;
+import io.argus.desktop.ui.FlatButton;
+import io.argus.desktop.ui.FlatScrollBarUI;
+import io.argus.desktop.ui.Icons;
+import io.argus.desktop.ui.LoadingBar;
+import io.argus.desktop.ui.Omnibox;
+import io.argus.desktop.ui.Theme;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Graphics;
@@ -16,23 +23,33 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
-import javax.swing.JButton;
+import java.util.function.Consumer;
+import javax.swing.AbstractAction;
+import javax.swing.BoxLayout;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.MatteBorder;
 
 /**
- * A minimal web view backed by the in-process Argus browser engine. It fetches a URL (or renders a
- * bundled welcome page), lays the document out to the viewport width, and paints the resulting
- * display list with Java2D. Fetching runs off the event thread; layout and paint run on it.
+ * A single browser tab backed by the in-process Argus engine, dressed to look like a modern browser:
+ * a rounded omnibox with a security indicator, circular toolbar buttons, a bookmarks strip, a
+ * sliding load indicator, and keyboard shortcuts. Fetching runs off the event thread; layout and
+ * paint run on it.
  *
  * <p>Honest scope: this renders static HTML/CSS and runs the engine's JavaScript subset. It is not a
  * production browser — JS-heavy single-page apps will show only their initial markup.
@@ -42,86 +59,215 @@ public final class BrowserView extends JPanel {
     private static final String WELCOME =
             """
             <!doctype html>
-            <html><head><title>Argus Web</title>
+            <html><head><title>New Tab</title>
             <style>
-              body { background-color: #ffffff; color: #202124; font-size: 16px; margin: 24px; }
-              h1 { color: #1a3c8c; }
-              .note { background-color: #eef2ff; border-width: 1px; border-color: #c7d2fe;
-                      padding: 14px; margin: 14px; color: #313a5a; }
-              .warn { color: #8a5300; }
-              code { color: #0a7d33; }
+              body { background-color: #0f1116; color: #ecedf1; font-size: 16px; margin: 0; padding: 0; }
+              .wrap { margin: 56px; }
+              .badge { color: #ff6a2b; font-size: 13px; margin: 0 0 10px; }
+              h1 { color: #ffffff; font-size: 34px; margin: 0 0 10px; }
+              .lede { color: #979eab; font-size: 17px; margin: 0 0 28px; }
+              .card { background-color: #171a21; border-width: 1px; border-color: #282d36;
+                      padding: 18px; margin: 0 0 14px; color: #c9cdd6; }
+              .card h3 { color: #ecedf1; font-size: 16px; margin: 0 0 6px; }
+              b { color: #ff6a2b; }
+              code { color: #35d09b; }
             </style></head>
             <body>
-              <h1>Argus Web Renderer</h1>
-              <div class="note">This page is drawn by a from-scratch HTML + CSS + JavaScript engine
-                 written in Java &mdash; no browser component is embedded.</div>
-              <p>Type a URL above and press <code>Go</code>. Simple static sites render well; try
-                 <code>http://info.cern.ch/hypertext/WWW/TheProject.html</code>.</p>
-              <p class="warn">JavaScript-heavy apps will show only their initial server markup.</p>
+              <div class="wrap">
+                <p class="badge">ARGUS BROWSER ENGINE</p>
+                <h1>New Tab</h1>
+                <p class="lede">A from-scratch HTML, CSS and JavaScript engine written in Java &mdash;
+                   no web component is embedded. Type a URL in the bar above and press <b>Enter</b>.</p>
+                <div class="card">
+                  <h3>Try a real website</h3>
+                  Open <code>http://info.cern.ch/hypertext/WWW/TheProject.html</code> &mdash; the first
+                  website ever published &mdash; and watch it render.
+                </div>
+                <div class="card">
+                  <h3>Handwritten pipeline</h3>
+                  HTML is tokenized into a DOM, JavaScript mutates it, CSS cascades into computed
+                  styles, boxes are laid out, and Java2D paints the pixels.
+                </div>
+                <div class="card">
+                  <h3>Shortcuts</h3>
+                  <code>Ctrl+L</code> address bar &middot; <code>Ctrl+R</code> reload &middot;
+                  <code>Ctrl+T</code> new tab &middot; <code>Alt+Left/Right</code> history.
+                </div>
+              </div>
             </body></html>
             """;
 
+    private static final String HOME_URL = "about:welcome";
+
     private final BrowserEngine engine = new BrowserEngine();
-    private final JTextField urlField = new JTextField();
+    private final Omnibox omnibox = new Omnibox("Search or type a URL");
+    private final JTextField urlField = omnibox.field();
     private final RenderCanvas canvas = new RenderCanvas();
-    private final JLabel status = new JLabel(" Ready");
     private final JScrollPane scroll = new JScrollPane();
-    private final JButton backButton = new JButton("\u25C0");
-    private final JButton forwardButton = new JButton("\u25B6");
+    private final JLabel status = new JLabel("Ready");
+    private final LoadingBar loadingBar = new LoadingBar();
+
+    private final FlatButton backButton = FlatButton.icon(Icons.Kind.BACK, "Back", null);
+    private final FlatButton forwardButton = FlatButton.icon(Icons.Kind.FORWARD, "Forward", null);
+    private final FlatButton reloadButton = FlatButton.icon(Icons.Kind.RELOAD, "Reload", null);
 
     private final List<String> history = new ArrayList<>();
     private int historyIndex = -1;
     private Page currentPage;
+    private SwingWorker<Page, Void> worker;
+    private boolean loading;
 
-    public BrowserView() {
+    private final Runnable onNewTab;
+    private Consumer<String> titleListener;
+
+    public BrowserView(Runnable onNewTab) {
         super(new BorderLayout());
-        add(buildBar(), BorderLayout.NORTH);
+        this.onNewTab = onNewTab;
+        setBackground(Theme.CHROME);
 
+        add(buildTop(), BorderLayout.NORTH);
+
+        canvas.setFocusable(true);
+        canvas.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                canvas.requestFocusInWindow();
+            }
+        });
         scroll.setViewportView(canvas);
-        scroll.getVerticalScrollBar().setUnitIncrement(24);
+        scroll.getVerticalScrollBar().setUnitIncrement(28);
         scroll.setBorder(null);
+        scroll.getViewport().setBackground(new Color(0xf1, 0xf3, 0xf4));
+        FlatScrollBarUI.apply(scroll);
         add(scroll, BorderLayout.CENTER);
 
-        status.setBorder(new EmptyBorder(5, 8, 5, 8));
-        add(status, BorderLayout.SOUTH);
+        status.setForeground(Theme.DIM);
+        status.setFont(Theme.UI);
+        JPanel statusBar = new JPanel(new BorderLayout());
+        statusBar.setBackground(Theme.PANEL);
+        statusBar.setBorder(new CompoundBorder(
+                new MatteBorder(1, 0, 0, 0, Theme.LINE_SOFT), new EmptyBorder(5, 14, 5, 14)));
+        statusBar.add(status, BorderLayout.CENTER);
+        add(statusBar, BorderLayout.SOUTH);
+
+        backButton.addActionListener(e -> goBack());
+        forwardButton.addActionListener(e -> goForward());
+        reloadButton.addActionListener(e -> {
+            if (loading) {
+                stopLoading();
+            } else if (currentPage != null) {
+                load(currentPage.url().toString(), false);
+            }
+        });
+
+        installShortcuts();
 
         scroll.getViewport().addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
-                relayout(); // reflow to the new width
+                relayout();
             }
         });
 
         SwingUtilities.invokeLater(this::showWelcome);
     }
 
-    private JPanel buildBar() {
-        JPanel bar = new JPanel(new BorderLayout(6, 0));
-        bar.setBorder(new EmptyBorder(8, 8, 8, 8));
+    private JComponent buildTop() {
+        JPanel toolbar = new JPanel(new BorderLayout(10, 0));
+        toolbar.setBackground(Theme.CHROME);
+        toolbar.setBorder(new EmptyBorder(8, 10, 8, 12));
 
-        JPanel nav = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        JPanel nav = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        nav.setOpaque(false);
+        FlatButton home = FlatButton.icon(Icons.Kind.HOME, "Home", e -> showWelcome());
         backButton.setEnabled(false);
         forwardButton.setEnabled(false);
-        backButton.addActionListener(e -> goBack());
-        forwardButton.addActionListener(e -> goForward());
-        JButton reload = new JButton("\u21BB");
-        reload.addActionListener(e -> {
-            if (currentPage != null) {
-                load(currentPage.url().toString(), false);
-            }
-        });
         nav.add(backButton);
         nav.add(forwardButton);
-        nav.add(reload);
-        bar.add(nav, BorderLayout.WEST);
+        nav.add(reloadButton);
+        nav.add(home);
+        toolbar.add(nav, BorderLayout.WEST);
 
         urlField.addActionListener(e -> load(urlField.getText(), true));
-        bar.add(urlField, BorderLayout.CENTER);
+        toolbar.add(omnibox, BorderLayout.CENTER);
 
-        JButton go = new JButton("Go");
-        go.addActionListener(e -> load(urlField.getText(), true));
-        bar.add(go, BorderLayout.EAST);
-        return bar;
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+        actions.setOpaque(false);
+        if (onNewTab != null) {
+            actions.add(FlatButton.icon(Icons.Kind.PLUS, "New tab (Ctrl+T)", e -> onNewTab.run()));
+        }
+        actions.add(FlatButton.icon(Icons.Kind.STAR, "Quick links are below", e ->
+                setStatus("Use the quick links below the address bar.")));
+        toolbar.add(actions, BorderLayout.EAST);
+
+        JPanel bookmarks = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        bookmarks.setBackground(Theme.CHROME);
+        bookmarks.setBorder(new MatteBorder(1, 0, 1, 0, Theme.LINE_SOFT));
+        addChip(bookmarks, "Start", HOME_URL);
+        addChip(bookmarks, "CERN — first website", "http://info.cern.ch/hypertext/WWW/TheProject.html");
+        addChip(bookmarks, "example.com", "http://example.com/");
+        addChip(bookmarks, "IANA", "http://www.iana.org/domains/reserved");
+
+        loadingBar.setAlignmentX(0f);
+        loadingBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 3));
+        loadingBar.setPreferredSize(new Dimension(10, 3));
+        toolbar.setAlignmentX(0f);
+        toolbar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 54));
+        bookmarks.setAlignmentX(0f);
+        bookmarks.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
+
+        JPanel top = new JPanel();
+        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+        top.setBackground(Theme.CHROME);
+        top.add(toolbar);
+        top.add(loadingBar);
+        top.add(bookmarks);
+        return top;
+    }
+
+    private void addChip(JPanel bar, String label, String url) {
+        bar.add(FlatButton.chip(label, e -> {
+            if (HOME_URL.equals(url)) {
+                showWelcome();
+            } else {
+                load(url, true);
+            }
+        }));
+    }
+
+    private void installShortcuts() {
+        bind(KeyStroke.getKeyStroke(KeyEvent.VK_L, InputEvent.CTRL_DOWN_MASK), "focusOmnibox", this::focusOmnibox);
+        bind(KeyStroke.getKeyStroke(KeyEvent.VK_R, InputEvent.CTRL_DOWN_MASK), "reload", this::reloadCurrent);
+        bind(KeyStroke.getKeyStroke(KeyEvent.VK_F5, 0), "reloadF5", this::reloadCurrent);
+        bind(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, InputEvent.ALT_DOWN_MASK), "back", this::goBack);
+        bind(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, InputEvent.ALT_DOWN_MASK), "forward", this::goForward);
+    }
+
+    private void bind(KeyStroke key, String name, Runnable action) {
+        getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(key, name);
+        getActionMap().put(name, new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                action.run();
+            }
+        });
+    }
+
+    private void reloadCurrent() {
+        if (currentPage != null) {
+            load(currentPage.url().toString(), false);
+        }
+    }
+
+    /** Focuses the address bar and selects its contents, ready to type. */
+    public void focusOmnibox() {
+        urlField.requestFocusInWindow();
+        urlField.selectAll();
+    }
+
+    /** Registers a callback invoked with the page title whenever this tab navigates. */
+    public void setTitleListener(Consumer<String> listener) {
+        this.titleListener = listener;
     }
 
     /** Loads a URL, optionally pushing it onto the back/forward history. */
@@ -130,9 +276,17 @@ public final class BrowserView extends JPanel {
         if (url.isEmpty()) {
             return;
         }
+        if (HOME_URL.equals(url)) {
+            showWelcome();
+            return;
+        }
         urlField.setText(url);
-        status.setText(" Loading " + url + " \u2026");
-        new SwingWorker<Page, Void>() {
+        setLoading(true);
+        setStatus("Loading " + url + " \u2026");
+        if (worker != null && !worker.isDone()) {
+            worker.cancel(true);
+        }
+        worker = new SwingWorker<>() {
             @Override
             protected Page doInBackground() throws Exception {
                 return engine.load(url);
@@ -140,24 +294,79 @@ public final class BrowserView extends JPanel {
 
             @Override
             protected void done() {
+                if (isCancelled()) {
+                    setLoading(false);
+                    return;
+                }
                 try {
                     currentPage = get();
                     if (pushHistory) {
                         pushHistory(url);
                     }
+                    applyPageChrome();
                     relayout();
-                    status.setText(" " + (currentPage.title().isEmpty() ? url : currentPage.title()));
+                    String title = currentPage.title().isEmpty() ? url : currentPage.title();
+                    setStatus(title);
+                    fireTitle(title);
                 } catch (Exception ex) {
-                    status.setText(" Could not load " + url + ": " + rootMessage(ex));
+                    setStatus("Could not load " + url + ": " + rootMessage(ex));
+                    omnibox.setSecurity(Omnibox.Security.INSECURE);
+                    fireTitle("Untitled");
+                } finally {
+                    setLoading(false);
                 }
             }
-        }.execute();
+        };
+        worker.execute();
+    }
+
+    private void stopLoading() {
+        if (worker != null && !worker.isDone()) {
+            worker.cancel(true);
+        }
+        setLoading(false);
+        setStatus("Stopped");
     }
 
     private void showWelcome() {
-        currentPage = engine.parse(WELCOME, URI.create("about:welcome"));
+        currentPage = engine.parse(WELCOME, URI.create(HOME_URL));
+        urlField.setText("");
+        omnibox.setSecurity(Omnibox.Security.SEARCH);
         relayout();
-        status.setText(" Argus Web Renderer");
+        setStatus("New Tab");
+        fireTitle("New Tab");
+        updateNavButtons();
+    }
+
+    private void applyPageChrome() {
+        String scheme = currentPage.url().getScheme();
+        if ("https".equalsIgnoreCase(scheme)) {
+            omnibox.setSecurity(Omnibox.Security.SECURE);
+        } else if ("http".equalsIgnoreCase(scheme)) {
+            omnibox.setSecurity(Omnibox.Security.INSECURE);
+        } else {
+            omnibox.setSecurity(Omnibox.Security.SEARCH);
+        }
+        urlField.setText(currentPage.url().toString());
+    }
+
+    private void setLoading(boolean value) {
+        this.loading = value;
+        if (value) {
+            reloadButton.setIcon(Icons.of(Icons.Kind.STOP, 18, Theme.TEXT));
+            reloadButton.setToolTipText("Stop");
+            loadingBar.start();
+        } else {
+            reloadButton.setIcon(Icons.of(Icons.Kind.RELOAD, 18, Theme.TEXT));
+            reloadButton.setToolTipText("Reload");
+            loadingBar.stop();
+        }
+    }
+
+    private void fireTitle(String title) {
+        if (titleListener != null) {
+            titleListener.accept(title);
+        }
     }
 
     private void relayout() {
@@ -199,9 +408,13 @@ public final class BrowserView extends JPanel {
         forwardButton.setEnabled(historyIndex < history.size() - 1);
     }
 
+    private void setStatus(String text) {
+        status.setText(text);
+    }
+
     private static String normalize(String raw) {
         String url = raw == null ? "" : raw.trim();
-        if (url.isEmpty() || url.contains("://")) {
+        if (url.isEmpty() || url.contains("://") || url.startsWith("about:")) {
             return url;
         }
         return "http://" + url;
@@ -220,6 +433,10 @@ public final class BrowserView extends JPanel {
     private static final class RenderCanvas extends JComponent {
 
         private LayoutBox root;
+
+        RenderCanvas() {
+            setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
+        }
 
         void setLayoutRoot(LayoutBox root, int width) {
             this.root = root;
